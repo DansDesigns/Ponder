@@ -58,7 +58,3 @@ static/
   logo.png
   ponder.ico
 ```
-
-## Licence
-
-MIT — built by [AlterniTech](http://alternitech.co.uk/)
