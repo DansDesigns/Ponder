@@ -1,6 +1,12 @@
-# Ponder
+# Ponder - take control of your websearch
 
-Local-first search — web, images, video, maps and Wikipedia from your browser at `http://localhost:7000`. No accounts, no tracking.
+A locally hosted websearch frontend. Search web, images, video, maps and Wikipedia from your browser at `http://localhost:7000`. No accounts, no tracking.
+* multiple search providers
+* customisable background
+* host on your network
+* private locally stored search history
+
+
 
 ## Install
 
