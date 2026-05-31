@@ -1,4 +1,5 @@
 # Ponder - take control of your websearch
+![((https://raw.githubusercontent.com/DansDesigns/Ponder/refs/heads/main/Screenshot%202026-05-31%20165516.png))](https://raw.githubusercontent.com/DansDesigns/Ponder/refs/heads/main/Screenshot%202026-05-31%20165516.png)
 
 A locally hosted websearch frontend. Search web, images, video, maps and Wikipedia from your browser at `http://localhost:7000`. No accounts, no tracking.
 * multiple search providers
