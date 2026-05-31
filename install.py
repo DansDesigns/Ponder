@@ -307,13 +307,15 @@ def _find_start_menu_windows():
     )
 
 
-def _make_lnk(lnk, target):
-    """Create a .lnk shortcut with Ponder icon."""
-    ico = PONDER_DIR / "ponder.ico"
+def _make_lnk(lnk, target, args=""):
+    """Create a .lnk shortcut with Ponder icon and optional arguments."""
+    ico       = PONDER_DIR / "ponder.ico"
     icon_line = f'$s.IconLocation="{ico},0";' if ico.exists() else ''
+    args_line = f'$s.Arguments="{args}";' if args else ''
     ps = (
         f'$s=(New-Object -COM WScript.Shell).CreateShortcut("{lnk}");'
         f'$s.TargetPath="{target}";'
+        f'{args_line}'
         f'$s.WorkingDirectory="{PONDER_DIR}";'
         f'$s.Description="Ponder - local-first search";'
         f'{icon_line}'
@@ -397,23 +399,42 @@ def install_windows(python):
     )
     ok(f"Batch launcher:  {bat}")
 
-    # 4. Desktop shortcut — points to bat (what worked originally)
+    # 1b. ponder_silent.vbs — runs ponder.bat with no visible CMD window
+    vbs = PONDER_DIR / "ponder_silent.vbs"
+    vbs.write_text(
+        f'Set ws = CreateObject("WScript.Shell")\r\n'
+        f'ws.Run Chr(34) & "{bat}" & Chr(34), 0, False\r\n'
+        f'Set ws = Nothing\r\n'
+    )
+    ok(f"Silent launcher: {vbs}")
+
+    # 4. Regenerate Ponder.lnk in project dir (silent, with icon)
+    #    This is the canonical shortcut — copy it anywhere you like
+    wscript  = Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "wscript.exe"
+    lnk_proj = PONDER_DIR / "Ponder.lnk"
+    _make_lnk(lnk_proj, str(wscript), args=str(vbs))
+    ok(f"Project shortcut:          {lnk_proj}  (silent, no CMD window)")
+
+    # Copy to Desktop
     desktop = _find_desktop_windows()
     desktop.mkdir(parents=True, exist_ok=True)
     lnk_desk = desktop / "Ponder.lnk"
-    if _make_lnk(lnk_desk, bat):
+    try:
+        import shutil
+        shutil.copy2(lnk_proj, lnk_desk)
         ok(f"Desktop shortcut:          {lnk_desk}")
-    else:
-        info("Desktop shortcut skipped — right-click ponder.bat → Send to → Desktop")
+    except Exception as e:
+        info(f"Desktop shortcut skipped ({e})")
 
-    # 5. Start Menu shortcut
+    # Copy to Start Menu
     start_menu = _find_start_menu_windows()
     start_menu.mkdir(parents=True, exist_ok=True)
     lnk_sm = start_menu / "Ponder.lnk"
-    if _make_lnk(lnk_sm, bat):
+    try:
+        shutil.copy2(lnk_proj, lnk_sm)
         ok(f"Start Menu shortcut:       {lnk_sm}")
-    else:
-        info("Start Menu shortcut skipped")
+    except Exception as e:
+        info(f"Start Menu shortcut skipped ({e})")
 
     # 5. Add project dir to user PATH
     say()
