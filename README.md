@@ -46,7 +46,7 @@ Open via the ⚙ cog. All settings persist to `~/.config/ponder/config.json`.
 
 ## Network mode
 
-Settings → **Server Mode** → toggle on → Restart. All devices on your network can then use the URL shown (e.g. `http://192.168.1.50:7000`). On Android/iOS use *Add to Home Screen* for a full-screen app icon.
+Settings → **Server Mode** → toggle on → Restart. All devices on your network can then use the URL shown (e.g. `http://192.168.1.50:7000`). On Android/iOS use *Add to Home Screen* from your browser for a full-screen app.
 
 ## Files
 
