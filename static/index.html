@@ -761,8 +761,18 @@ body::before {
   position: relative; transition: border-color 0.12s;
 }
 .vid-card:hover { border-color: var(--green); }
-.vid-thumb { position: relative; }
-.vid-thumb img { width: 100%; height: 120px; object-fit: cover; display: block; }
+.vid-thumb { position: relative; overflow: hidden; }
+.vid-thumb img { width: 100%; height: 120px; object-fit: cover; display: block; transition: opacity 0.15s; }
+.vid-thumb iframe {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 0; display: block;
+}
+.vid-thumb .vid-preview-icon {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s; pointer-events: none;
+}
+.vid-card:hover .vid-preview-icon { opacity: 1; }
+.vid-card:hover .vid-thumb img { opacity: 0.85; }
 .vid-duration {
   position: absolute; bottom: 4px; right: 4px;
   background: rgba(0,0,0,0.78); color: #fff;
@@ -2592,6 +2602,11 @@ function makeVideoGrid(results) {
     hb.textContent = favSet.has(key) ? '\u2665' : '\u2661';
     hb.onclick = (e) => toggleFavourite(e, {...r, _src: 'video'});
 
+    // Hover preview
+    card.dataset.url = r.url || '';
+    const embedUrl = getEmbedUrl(r.url);
+    if (embedUrl) attachVideoHover(card, thumbWrap, embedUrl);
+
     card.appendChild(thumbWrap);
     card.appendChild(info);
     card.appendChild(hb);
@@ -2600,6 +2615,54 @@ function makeVideoGrid(results) {
   return grid;
 }
 
+
+
+// ── Video hover preview ───────────────────────────────────────────────────
+function getEmbedUrl(url) {
+  if (!url) return null;
+  // YouTube watch
+  let m = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  if (m) return `https://www.youtube.com/embed/${m[1]}?autoplay=1&mute=1&controls=1&modestbranding=1`;
+  // YouTube embed already
+  m = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+  if (m) return url.includes('autoplay') ? url : url + (url.includes('?') ? '&' : '?') + 'autoplay=1&mute=1&controls=1';
+  // YouTube short
+  m = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+  if (m) return `https://www.youtube.com/embed/${m[1]}?autoplay=1&mute=1&controls=1`;
+  // Vimeo
+  m = url.match(/vimeo\.com\/(\d+)/);
+  if (m) return `https://player.vimeo.com/video/${m[1]}?autoplay=1&muted=1&controls=1`;
+  // Dailymotion
+  m = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
+  if (m) return `https://www.dailymotion.com/embed/video/${m[1]}?autoplay=1&mute=1`;
+  return null;
+}
+
+function attachVideoHover(card, thumbWrap, embedUrl) {
+  let timer = null;
+  let iframe = null;
+
+  card.addEventListener('mouseenter', () => {
+    timer = setTimeout(() => {
+      if (iframe) return;
+      iframe = document.createElement('iframe');
+      iframe.src = embedUrl;
+      iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+      iframe.allowFullscreen = true;
+      // Stop card click from firing while iframe is active
+      iframe.addEventListener('mouseenter', () => card.onclick = null);
+      iframe.addEventListener('mouseleave', () => card.onclick = () => window.open(embedUrl.replace(/\/embed\/|embed\/video\//, '/watch?v=').replace(/[?&]autoplay.*/, ''), '_blank'));
+      thumbWrap.appendChild(iframe);
+    }, 500);
+  });
+
+  card.addEventListener('mouseleave', () => {
+    clearTimeout(timer);
+    timer = null;
+    if (iframe) { iframe.remove(); iframe = null; }
+    card.onclick = () => window.open(card.dataset.url, '_blank');
+  });
+}
 
 // ── Map result rendering ──────────────────────────────────────────────────
 function makeMapCard(r) {
