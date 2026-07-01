@@ -4,6 +4,7 @@ import re
 import json as _json
 import logging
 import os
+import zipfile
 import subprocess
 import webbrowser
 from pathlib import Path
@@ -441,6 +442,232 @@ async def local_ip():
         "host": cfg.host,
         "port": cfg.port,
     })
+
+    return ["Arial", "Consolas"]
+
+
+# ── Version / update helpers ─────────────────────────────────────────────
+def _parse_version(raw: str, branch: str = "") -> dict | None:
+    """Parse a version.txt line like 'main 2026-06-01 RC_MAIN.zip' or 'v1.3.0'.
+
+    Returns {"branch": ..., "version": ...} or None on parse failure.
+    """
+    if not raw or "\n" in raw:
+        return _parse_version(raw.split("\n")[-1].strip() if "\n" in raw else "")
+    parts = raw.strip().split(maxsplit=3)
+    if len(parts) >= 3:
+        branch, ver = parts[0], " ".join(parts[1:])
+    elif len(parts) == 2 and re.match(r"^v?\d", parts[0]):
+        branch, ver = "", parts[0]
+    else:
+        return None
+    if not branch:
+        branch = ""
+    if not ver:
+        ver = ""
+    # Try semver comparison first; fall back to string compare for date-tagged versions
+    try:
+        import packaging.version as _pv
+        v1, v2 = _pv.parse(ver.split()[0]) if " " in ver else _pv.parse(ver)
+        return {"branch": branch, "version": ver, "_semver": True}
+    except Exception:
+        pass
+    # String fallback (works for dates like 2026-06-01 too)
+    v1 = ver.split()[0] if " " in ver else ver
+    return {"branch": branch, "version": ver, "_semver": False}
+
+
+def _fetch_remote_version_text(repo_url: str) -> tuple[bool, str | None]:
+    """Fetch version.txt from GitHub via raw.githubusercontent.com.
+
+    Returns (ok, content). content is the raw text or None on failure.
+    """
+    try:
+        import urllib.request as _urllib
+        url = f"{repo_url.rstrip('/')}/raw/main/version.txt"
+        with _urllib.urlopen(url) as r:  # type: ignore[attr-defined]
+            if r.status == 200:
+                return True, r.read().decode("utf-8", errors="replace")
+            else:
+                return False, ""
+    except Exception as e:
+        log.debug(f"version.txt fetch error: {e}")
+        return False, None
+
+
+@app.get("/api/version")
+async def api_version():
+    """Return local and remote version info for comparison.
+
+    GET /api/version?local_path=<path> — reads a local version file (optional).
+    """
+    repo_url = cfg.github_repo or ""
+    # Read local version.txt if it exists
+    local_path = Path(__file__).parent / "version.txt"
+    local_ok = False
+    local_data = {}
+    if local_path.exists():
+        text = local_path.read_text(errors="replace").strip()
+        parsed = _parse_version(text)
+        if parsed:
+            local_data = {"branch": parsed["branch"], "version": parsed["version"]}
+            local_ok = True
+
+    # Fetch remote version.txt
+    ok, remote_text = _fetch_remote_version_text(repo_url)
+    remote_data = {}
+    if ok and remote_text.strip():
+        parsed = _parse_version(remote_text)
+        if parsed:
+            remote_data = {"branch": parsed["branch"], "version": parsed["version"]}
+
+    result = {
+        "local_available": local_ok,
+        "remote_available": ok and bool(remote_text),
+        "has_update": False,
+    }
+    if result["local_available"] and result["remote_available"]:
+        result["has_update"] = remote_data.get("version", "") > local_data.get("version", "")
+
+    return JSONResponse({
+        "repo_url": repo_url,
+        **result,
+        **local_data,
+        **remote_data,
+    })
+
+
+@app.post("/api/update-download/{filename}")
+async def api_update_download(filename: str):
+    """Download a single file from the GitHub release zip (unzipped via raw URL).
+
+    POST /api/update-download/main.py?branch=main&path=<file_path>
+
+    The file is written to BASE/<branch>/<filename>. If branch has no files, writes directly to BASE.
+    """
+    repo_url = cfg.github_repo or ""
+    branch = "main"  # default; can be overridden by query param
+    path = filename  # e.g. "main.py", "config.py", "static/index.html"
+
+    url = f"{repo_url.rstrip('/')}/raw/{branch}/{path}"
+    try:
+        import urllib.request as _urllib
+        with _urllib.urlopen(url) as r:  # type: ignore[attr-defined]
+            if r.status != 200:
+                return JSONResponse({"error": f"HTTP {r.status}"}, status_code=404)
+            data = await asyncio.to_thread(r.read)
+    except Exception as e:
+        log.warning(f"download error for {path}: {e}")
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+    # Determine destination
+    BASE = Path(__file__).parent.resolve()
+    dest_dir = BASE / "update" if branch else BASE
+    dest_path = dest_dir / path
+
+    await asyncio.to_thread(dest_path.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(dest_path.write_bytes, data)
+
+    return JSONResponse({"ok": True, "path": str(dest_path), "size": len(data)})
+
+
+@app.post("/api/update-apply")
+async def api_update_apply():
+    """Perform the full update: copy files from 'update/' into root and restart."""
+    BASE = Path(__file__).parent.resolve()
+
+    # Copy all files from 'update/' directory into BASE (overwriting)
+    update_dir = BASE / "update"
+    if not update_dir.exists():
+        return JSONResponse({"error": "No updates to apply — run the update check first."}, status_code=400)
+
+    copied = 0
+    skipped = 0
+    for f in update_dir.iterdir():
+        dest = BASE / f.name
+        if not dest.exists() or f.stat().st_size > dest.stat().st_size:
+            await asyncio.to_thread(dest.write_bytes, f.read_bytes())
+            copied += 1
+        else:
+            skipped += 1
+
+    # Remove the update staging directory
+    try:
+        import shutil as _shutil
+        _shutil.rmtree(str(update_dir))
+    except Exception:
+        pass
+
+    return JSONResponse({
+        "ok": True,
+        "copied": copied,
+        "skipped_newer": skipped,
+        "message": f"Copied {copied} files from update/ into project root.",
+    })
+
+
+
+# ── Updater ───────────────────────────────────────────────────────────────
+GITHUB_RAW   = "https://raw.githubusercontent.com/DansDesigns/Ponder/main"
+GITHUB_ZIP   = "https://github.com/DansDesigns/Ponder/archive/refs/heads/main.zip"
+VERSION_FILE = BASE / "VERSION"
+
+UPDATE_FILES = {
+    "main.py", "config.py", "indexer.py", "web_search.py",
+    "image_search.py", "video_search.py", "wiki.py", "map_search.py",
+    "install.py", "requirements.txt", "README.md", "VERSION",
+    "static/index.html",
+}
+
+def _local_version() -> str:
+    try:    return VERSION_FILE.read_text().strip()
+    except: return "0.0.0"
+
+@app.get("/api/update/check")
+async def update_check():
+    local = _local_version()
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{GITHUB_RAW}/VERSION")
+            remote = r.text.strip()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=503)
+    return JSONResponse({"local": local, "remote": remote, "up_to_date": local == remote})
+
+@app.post("/api/update/download")
+async def update_download():
+    update_dir = BASE / "update"
+    try:
+        update_dir.mkdir(exist_ok=True)
+        zip_path = update_dir / "ponder_update.zip"
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as c:
+            r = await c.get(GITHUB_ZIP)
+            zip_path.write_bytes(r.content)
+        with zipfile.ZipFile(zip_path) as z:
+            z.extractall(update_dir)
+        zip_path.unlink()
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/update/apply")
+async def update_apply():
+    import shutil as _sh
+    update_dir = BASE / "update"
+    extracted  = next((d for d in update_dir.iterdir() if d.is_dir()), None)
+    if not extracted:
+        return JSONResponse({"ok": False, "error": "No extracted folder found"}, status_code=500)
+    try:
+        for rel in UPDATE_FILES:
+            src_path  = extracted / rel
+            dest_path = BASE / rel
+            if src_path.exists():
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                _sh.copy2(src_path, dest_path)
+        _sh.rmtree(update_dir, ignore_errors=True)
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 @app.post("/api/restart")
 async def restart_server():

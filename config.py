@@ -32,6 +32,9 @@ DEFAULTS = {
         "*.iso", "*.bin", "*.exe", "*.so", "*.o"
     ],
     "max_file_mb":    10,
+    # ── update & donate ───────────────────────────
+    "github_repo":   "https://github.com/DansDesigns/Ponder",
+    "donate_url":    "https://alternitech.square.site/product/donation/6",
 }
 
 

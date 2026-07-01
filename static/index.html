@@ -887,6 +887,8 @@ body::before {
   transition: color 0.12s, border-color 0.12s; flex-shrink: 0;
 }
 .fav-home-btn:hover  { color: #e24b4a; border-color: #e24b4a; }
+.donate-btn { text-decoration: none; font-family: var(--mono); font-size: 0.78rem; display:flex; align-items:center; }
+.donate-btn:hover { color: #e24b4a; border-color: #e24b4a; }
 .fav-home-btn.active { color: #e24b4a; border-color: #e24b4a; }
 
 /* Search wrap — holds search-row + fav button in a row */
@@ -1007,6 +1009,19 @@ body::before {
 <div class="settings-popup" id="settingsPopup">
   <div class="sp-head">
     <span>Settings</span>
+  </div>
+
+  <div class="sp-section" id="updateSection">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div>
+        <div class="sp-label" style="margin-bottom:2px;">PONDER</div>
+        <div id="versionLabel" style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);">v1.0.0</div>
+      </div>
+      <button class="sp-btn" id="updateBtn" onclick="checkForUpdate()" style="flex-shrink:0;padding:4px 10px;font-size:0.72rem;">
+        Check for update
+      </button>
+    </div>
+    <div id="updateStatus" style="display:none;margin-top:6px;font-family:var(--mono);font-size:0.68rem;"></div>
   </div>
 
   <div class="sp-section">
@@ -1225,6 +1240,8 @@ body::before {
   </div>
 <div class="hist-drop" id="histDrop"></div>
   <button class="fav-home-btn" id="favHomeBtn" onclick="openFavPanel()" title="Favourites">♥</button>
+  <a href="https://alternitech.square.site/product/donation/6" target="_blank" rel="noopener"
+     class="fav-home-btn donate-btn" title="Support Ponder — donate via AlterniTech">♡&thinsp;Donate</a>
   </div><!-- /search-wrap -->
   <div class="modes-panel" id="modesPanel">
     <div class="modes-toggle" onclick="toggleModePanel()">
@@ -2215,6 +2232,63 @@ async function loadBackgroundList() {
     sel.value = saved;
     if (sel.value !== saved) sel.value = 'none';  // fallback if file missing
   } catch(e) {}
+}
+
+// ── Updater ───────────────────────────────────────────────────────────────
+async function checkForUpdate() {
+  const btn    = document.getElementById('updateBtn');
+  const status = document.getElementById('updateStatus');
+  btn.textContent = 'Checking…'; btn.disabled = true;
+  status.style.display = '';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Fetching latest version from GitHub…';
+  try {
+    const d = await apiFetch('/api/update/check');
+    document.getElementById('versionLabel').textContent = 'v' + d.local;
+    if (d.up_to_date) {
+      status.textContent = '✓ Already on latest version (' + d.local + ')';
+      status.style.color = 'var(--green-dark)';
+      btn.textContent = 'Check for update'; btn.disabled = false;
+    } else {
+      status.innerHTML = 'Update available: <b>' + d.remote + '</b> (current: ' + d.local + ')';
+      status.style.color = 'var(--text)';
+      btn.textContent = 'Install update'; btn.disabled = false;
+      btn.onclick = () => applyUpdate(d.remote);
+    }
+  } catch(e) {
+    status.textContent = 'Could not reach GitHub — check your connection';
+    status.style.color = '#e24b4a';
+    btn.textContent = 'Check for update'; btn.disabled = false;
+  }
+}
+
+async function applyUpdate(version) {
+  const btn    = document.getElementById('updateBtn');
+  const status = document.getElementById('updateStatus');
+  btn.disabled = true; btn.textContent = 'Updating…';
+  status.style.color = 'var(--muted)';
+
+  const steps = [
+    ['/api/update/download', 'Downloading update…'],
+    ['/api/update/apply',    'Applying files…'],
+  ];
+  for (const [url, msg] of steps) {
+    status.textContent = msg;
+    try {
+      const d = await apiFetch(url, 'POST');
+      if (!d.ok) throw new Error(d.error || 'Failed');
+    } catch(e) {
+      status.textContent = '✗ ' + e.message;
+      status.style.color = '#e24b4a';
+      btn.textContent = 'Install update'; btn.disabled = false;
+      btn.onclick = () => applyUpdate(version);
+      return;
+    }
+  }
+  status.textContent = 'Done! Restarting Ponder…';
+  status.style.color = 'var(--green-dark)';
+  await apiFetch('/api/restart', 'POST').catch(()=>{});
+  setTimeout(() => location.reload(), 2000);
 }
 
 // ── Blend results ─────────────────────────────────────────────────────────
