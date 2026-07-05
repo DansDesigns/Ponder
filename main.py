@@ -610,12 +610,12 @@ async def api_update_apply():
 # ── Updater ───────────────────────────────────────────────────────────────
 GITHUB_RAW   = "https://raw.githubusercontent.com/DansDesigns/Ponder/main"
 GITHUB_ZIP   = "https://github.com/DansDesigns/Ponder/archive/refs/heads/main.zip"
-VERSION_FILE = BASE / "VERSION"
+VERSION_FILE = BASE / "version.txt"
 
 UPDATE_FILES = {
     "main.py", "config.py", "indexer.py", "web_search.py",
     "image_search.py", "video_search.py", "wiki.py", "map_search.py",
-    "install.py", "requirements.txt", "README.md", "VERSION",
+    "install.py", "requirements.txt", "README.md", "version.txt",
     "static/index.html",
 }
 
@@ -626,10 +626,19 @@ def _local_version() -> str:
 @app.get("/api/update/check")
 async def update_check():
     local = _local_version()
+    remote = None
     try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"{GITHUB_RAW}/VERSION")
-            remote = r.text.strip()
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as c:
+            # Try main branch first, fall back to master
+            for branch in ("main", "master"):
+                r = await c.get(
+                    f"https://raw.githubusercontent.com/DansDesigns/Ponder/{branch}/version.txt"
+                )
+                if r.status_code == 200:
+                    remote = r.text.strip()
+                    break
+        if remote is None:
+            return JSONResponse({"error": "version.txt not found on GitHub"}, status_code=404)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=503)
     return JSONResponse({"local": local, "remote": remote, "up_to_date": local == remote})

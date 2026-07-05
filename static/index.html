@@ -444,7 +444,8 @@ body::before {
 .card.web, .card.wiki { margin-left: 5rem; margin-right: 5rem; }
 .card-icon { font-size: 14px; color: var(--muted); margin-top: 2px; flex-shrink: 0; }
 .card-body { flex: 1; min-width: 0; }
-.card-title { font-size: 0.88rem; font-weight: 500; font-family: var(--mono); margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-title { font-size: 0.88rem; font-weight: 500; font-family: var(--mono); margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--blue); }
+.card-title:hover { text-decoration: underline; }
 .card-url   { font-size: 0.68rem; color: var(--green-dark); font-family: var(--mono); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-snip  { font-size: 0.81rem; color: var(--muted); font-family: var(--mono); line-height: 1.45;
               display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1480,7 +1481,7 @@ function toggleSettings() {
   const b = document.getElementById('cogBtn');
   const open = p.classList.toggle('open');
   b.classList.toggle('open', open);
-  if (open) { loadStatus(); loadFontList(); loadBackgroundList(); loadServerIP(); }
+  if (open) { loadStatus(); loadFontList(); loadBackgroundList(); loadServerIP(); loadLocalVersion(); }
 }
 document.addEventListener('click', e => {
   if (!e.target.closest('#settingsPopup') && !e.target.closest('#cogBtn')
@@ -2235,6 +2236,16 @@ async function loadBackgroundList() {
 }
 
 // ── Updater ───────────────────────────────────────────────────────────────
+async function loadLocalVersion() {
+  try {
+    const d = await apiFetch('/api/update/check');
+    // Only update the label if we got a real version back
+    if (d.local && d.local !== '0.0.0') {
+      document.getElementById('versionLabel').textContent = 'v' + d.local;
+    }
+  } catch(e) {}
+}
+
 async function checkForUpdate() {
   const btn    = document.getElementById('updateBtn');
   const status = document.getElementById('updateStatus');
@@ -2244,19 +2255,23 @@ async function checkForUpdate() {
   status.textContent = 'Fetching latest version from GitHub…';
   try {
     const d = await apiFetch('/api/update/check');
-    document.getElementById('versionLabel').textContent = 'v' + d.local;
+    // Update label only if we have a real local version
+    if (d.local && d.local !== '0.0.0') {
+      document.getElementById('versionLabel').textContent = 'v' + d.local;
+    }
+    if (d.error) throw new Error(d.error);
     if (d.up_to_date) {
       status.textContent = '✓ Already on latest version (' + d.local + ')';
       status.style.color = 'var(--green-dark)';
       btn.textContent = 'Check for update'; btn.disabled = false;
     } else {
-      status.innerHTML = 'Update available: <b>' + d.remote + '</b> (current: ' + d.local + ')';
+      status.innerHTML = 'Update available: <b>v' + d.remote + '</b> (you have: v' + d.local + ')';
       status.style.color = 'var(--text)';
       btn.textContent = 'Install update'; btn.disabled = false;
       btn.onclick = () => applyUpdate(d.remote);
     }
   } catch(e) {
-    status.textContent = 'Could not reach GitHub — check your connection';
+    status.textContent = '✗ ' + (e.message || 'Could not reach GitHub — check your connection');
     status.style.color = '#e24b4a';
     btn.textContent = 'Check for update'; btn.disabled = false;
   }
