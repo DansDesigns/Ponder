@@ -7,10 +7,10 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
-say()  { printf "  %s\n" "$1"; }
-ok()   { printf "  \xE2\x9C\x93  %s\n" "$1"; }
-info() { printf "  \xE2\x84\xB9  %s\n" "$1"; }
-err()  { printf "  \xE2\x9C\x97  %s\n" "$1" >&2; exit 1; }
+say()  { printf "  %s\n" "${1:-}"; }
+ok()   { printf "  \xE2\x9C\x93  %s\n" "${1:-}"; }
+info() { printf "  \xE2\x84\xB9  %s\n" "${1:-}"; }
+err()  { printf "  \xE2\x9C\x97  %s\n" "${1:-}" >&2; exit 1; }
 
 echo
 echo "  ┌──────────────────────────────────────┐"
